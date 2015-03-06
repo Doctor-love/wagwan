@@ -422,6 +422,21 @@ def gen_output(greeting, messages):
     return greeting['hi'] + '\n' + body + '\n' + greeting['bye']
 
 
+# Get over-all host status
+def get_host_status(session, exclude):
+    '''Get over-all host status.
+    The function takes two arguments - a Monitor session object
+    and a exlude filter string for the host category.
+    Returns a multi line string with over-all host status.'''
+
+    logger.debug('Retrieving over-all host status')
+
+    session.query_filter(
+        '[hosts] state != 0 and acknowledged = 0 '
+        'and scheduled_downtime_depth = 0' + exclude,
+        ['name', 'state', 'is_flapping', 'last_state_change'])
+
+
 # Main application function
 def main(prog, args):
     '''Main application function. Takes two arguments -
@@ -444,13 +459,8 @@ def main(prog, args):
     messages = []
 
     try:
-        session.query_filter(
-            '[hosts] all' + exclude['hosts'],
-            ['name', 'state'])
-
-        session.query_filter(
-            '[services] all' + exclude['services'],
-            ['description', 'state'])
+        messages.append(
+            get_host_status(session, exclude['hosts']))
 
     except MonitorApi.QueryError as error_msg:
         logger.debug('Runtime error occured: "%s"' % error_msg)
