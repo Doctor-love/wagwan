@@ -431,10 +431,58 @@ def get_host_status(session, exclude):
 
     logger.debug('Retrieving over-all host status')
 
-    session.query_filter(
-        '[hosts] state != 0 and acknowledged = 0 '
-        'and scheduled_downtime_depth = 0' + exclude,
-        ['name', 'state', 'is_flapping', 'last_state_change'])
+    hosts = session.query_filter(
+        '[hosts] all' + exclude,
+        ['name', 'state', 'is_flapping', 'last_state_change',
+         'scheduled_downtime_depth', 'acknowledged'])
+
+    up = 0
+    down = 0
+    unreachable = 0
+    unexpected = 0
+
+    acknowledged = 0
+    oldest_problem = None
+    total = len(hosts)
+
+    logger.debug('Grouping state of %i host(s)' % len(hosts))
+
+    for host in hosts:
+        if (host['state'] == 0 or
+                host['scheduled_downtime_depth']):
+
+            up += 1
+
+        elif host['acknowledged']:
+            acknowledged += 1
+
+        elif host['state'] == 1:
+            down += 1
+
+        elif host['state'] == 2:
+            unreachable += 1
+
+        else:
+            logger.error(
+                'Unexpected state for host "%s": %i'
+                % (host['name'], host['state']))
+
+            unexpected += 1
+
+    message = (
+        'Out of %i hosts, %i are up, '
+        '%i have had problems acknowledged, '
+        '%i are unreachable and %i are down'
+        % (total, up, acknowledged, unreachable, down))
+
+    if down or unreachable:
+        message = (
+            message + ' - you might wanna take a look at that.')
+
+    else:
+        message = message + ' - good job!'
+
+    return message
 
 
 # Main application function
@@ -470,6 +518,17 @@ def main(prog, args):
 
         print gen_output(greeting, messages)
         exit(2)
+
+    # If no data messages were provided, we exit with error message
+    if not messages:
+        messages = [
+            gen_error_intro('No messages were provided', args.boring)]
+
+        print gen_output(greeting, messages)
+        exit(3)
+
+    # Generates application output
+    print gen_output(greeting, messages)
 
     exit(0)
 
