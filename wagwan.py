@@ -3,7 +3,7 @@
 '''wagwan - Generates a friendly status report from op5 Monitor'''
 
 prog = 'wagwan'
-version = '0.1'
+version = '0.2'
 description = __doc__
 author = 'Joel Rangsmo <joel@rangsmo.se>'
 license = 'GPLv2'
@@ -153,17 +153,18 @@ class MonitorApi(object):
     # Function to query list filters
     def query_filter(self, lfilter, columns):
         '''Function to query list filters.
-        Expects two arguments - a filter query and a list of columns'''
+        Expects two arguments - a filter query and a list of filter columns.
+        Returns list with dicts (decoded JSON response)'''
 
         logger.debug(
             'Querying filter "%s" for columns "%s"' % (lfilter, columns))
 
         # Joining columns to expected format and building URL options
         if not isinstance(columns, list):
-            raise self.QueryError('Data columns were not provided as list')
+            raise self.QueryError('Filter columns were not provided as list')
 
         if not columns:
-            raise self.QueryError('No data columns were provided in query')
+            raise self.QueryError('No filter columns were provided in query')
 
         options = {
             'query': lfilter, 'columns': ','.join(columns), 'format': 'json'}
@@ -176,6 +177,31 @@ class MonitorApi(object):
 
         else:
             return False
+
+    # Function to count items found by filter qyery
+    def count_filter(self, lfilter):
+        '''Function to count items found by filter query.
+        Expects one argument - a filter query.
+        Returns a integer with filter count'''
+
+        logger.debug(
+            'Counting items found by filter query "%s"' % lfilter)
+
+        options = {
+            'query': lfilter, 'format': 'json'}
+
+        # Performs the filter query and validates the response
+        query = self.get_data('filter/count', options)
+
+        if self.check_status_code(query):
+            query = self.decode_response(query.text)
+
+            try:
+                return query['count']
+
+            except KeyError:
+                raise self.QueryError(
+                    'Recieved invalid or malformed server response')
 
 
 # Parses command line arguments
@@ -442,7 +468,6 @@ def get_host_status(session, exclude):
     unexpected = 0
 
     acknowledged = 0
-    oldest_problem = None
     total = len(hosts)
 
     logger.debug('Grouping state of %i host(s)' % len(hosts))
@@ -451,15 +476,36 @@ def get_host_status(session, exclude):
         if (host['state'] == 0 or
                 host['scheduled_downtime_depth']):
 
+            logger.debug(
+                'Adding host "%s" to UP, since the host state '
+                'is "%i" and scheduled_downtime_depth is "%i"'
+                % (host['name'], host['state'],
+                   host['scheduled_downtime_depth']))
+
             up += 1
 
         elif host['acknowledged']:
+            logger.debug(
+                'Adding host "%s" to ACK, since the host state '
+                'is "%i" and acknowledged is "%i"'
+                % (host['name'], host['state'],
+                   host['acknowledged']))
+
             acknowledged += 1
 
         elif host['state'] == 1:
+            logger.debug(
+                'Adding host "%s" to DOWN, since the host state '
+                'is "%i"' % (host['name'], host['state']))
+
             down += 1
 
         elif host['state'] == 2:
+            logger.debug(
+                'Adding host "%s" to UNREACHABLE, '
+                'since the host state is "%i"'
+                % (host['name'], host['state']))
+
             unreachable += 1
 
         else:
@@ -471,16 +517,65 @@ def get_host_status(session, exclude):
 
     message = (
         'Out of %i hosts, %i are up, '
-        '%i have had problems acknowledged, '
+        '%i have had problems acknowledged,\n'
         '%i are unreachable and %i are down'
         % (total, up, acknowledged, unreachable, down))
 
     if down or unreachable:
-        message = (
-            message + ' - you might wanna take a look at that.')
+        message += ' - you might wanna take a look at that.'
 
     else:
-        message = message + ' - good job!'
+        message += ' - good job!'
+
+    if unexpected:
+        message += (
+            '\nWe also found %i hosts in a unexpected state, this '
+            'shouldn\'t really happen, check the application logs.'
+            % len(unexpected))
+
+    return message
+
+
+# Get number of log messages the last 24 hours and some history
+def get_log_count(session):
+    '''Get number of log messages the last 24 hours and some history.
+    The function takes one arguments - a Monitor session object.
+    Returns a multi line string with log statistics'''
+
+    logger.debug('Counting log messages from the last 24 hours')
+
+    last_24h = session.count_filter(
+        '[log_messages] rtime > date("24 hours ago")')
+
+    logger.debug('Counting log messages the previous last 24 hours')
+
+    previous_24h = session.count_filter(
+        '[log_messages] rtime < date("24 hours ago") '
+        'and rtime > date("48 hours ago")')
+
+    # If no log messages were recieved, there is no reason to continue
+    if not last_24h:
+        return 'No logs were recieved the last 24 hours'
+
+    message = (
+        'During the last 24 hours we recieved %i log messages' % last_24h)
+
+    logger.debug(
+        'Comparing number of logs from last 24 hours '
+        'with logs from the previous 24 hours')
+
+    if last_24h == previous_24h:
+        message += ' - that\'s the exact amount as the last day!'
+
+    elif last_24h > previous_24h:
+        message += (
+            ' - that\'s %i more than the previous day!'
+            % (last_24h - previous_24h))
+
+    elif last_24h < previous_24h:
+        message += (
+            ' - that\'s %i less than the previous day.'
+            % (previous_24h - last_24h))
 
     return message
 
@@ -509,6 +604,9 @@ def main(prog, args):
     try:
         messages.append(
             get_host_status(session, exclude['hosts']))
+
+        messages.append(
+            get_log_count(session))
 
     except MonitorApi.QueryError as error_msg:
         logger.debug('Runtime error occured: "%s"' % error_msg)

@@ -11,6 +11,8 @@ Current features
 ========
 - Enterprise ready greeting and error messages
 - Ability to exclude hosts or host groups from report 
+- Get the current over-all status of your hosts
+- Get number of recieved log messages and some historical comparison'
  
 Feature wish list 
 =================
@@ -27,5 +29,13 @@ The command below will generate a report with host names matching "test-" and ho
 It will also send application logs to syslog and pipe the output to the "smssend" utility:   
 
 ```
-$ ./wagwan --server 'mon.i.tor' --username 'read_only_1' --password 'god' --exclude-host 'test-.*' --exclude-host-group 'Windows servers' --logging syslog | smssend 46730000000
+$ ./wagwan.py --server 'mon.i.tor' --username 'read_only_1' --password 'god' --exclude-host 'test-.*' --exclude-host-group 'Windows servers' --logging syslog | smssend 46730000000
+-- 
+Text: Hey man - what's up?
+Out of 17 hosts, 8 are up, 3 have had problems acknowledged,
+2 are unreachable and 4 are down - you might wanna take a look at that.
+During the last 24 hours we recieved 3305 log messages - that's 451 more than the previous day!
+
+Cya around, mate
+To: 46700000000
 ```
